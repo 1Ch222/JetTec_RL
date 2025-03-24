@@ -1,0 +1,36 @@
+<launch>
+  <!-- Déclaration des arguments -->
+  <arg name="world" default="$(find jettec_robot)/world/Line_track.sdf" />
+  <arg name="file" default="$(find jettec_robot)/model/JetTec_Robot.sdf" />
+  <arg name="model_string" default="" />
+  <arg name="topic" default="/model/JetTec_Robot/pose" />
+  <arg name="entity_name" default="JetTec_Robot" />
+  <arg name="allow_renaming" default="False" />
+  <arg name="x" default="-1.0" />
+  <arg name="y" default="-0.90" />
+  <arg name="z" default="0.15" />
+  <arg name="roll" default="0" />
+  <arg name="pitch" default="0" />
+  <arg name="yaw" default="0" />
+
+  <!-- Lancement de Gazebo avec le monde -->
+  <include file="$(find ros_gz_sim)/launch/gz_sim.launch.py">
+    <arg name="gz_args" value="$(arg world)"/>
+  </include>
+
+  <!-- Spawn du robot -->
+  <gz_spawn_model 
+    world="$(arg world)"
+    file="$(arg file)"
+    model_string="$(arg model_string)"
+    topic="$(arg topic)"
+    entity_name="$(arg entity_name)"
+    allow_renaming="$(arg allow_renaming)"
+    x="$(arg x)"
+    y="$(arg y)"
+    z="$(arg z)"
+    roll="$(arg roll)"
+    pitch="$(arg pitch)"
+    yaw="$(arg yaw)"/>
+</launch>
+
