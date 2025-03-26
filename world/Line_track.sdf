@@ -187,22 +187,22 @@
           <geometry>
             <plane>
               <normal>0 0 1</normal>
-              <size>7 7</size>
+              <size>6 6</size>
             </plane>
           </geometry>
           <material>
-            <ambient>0.8 0.8 0.8 1</ambient>
-            <diffuse>0.8 0.8 0.8 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-            <pbr>
-              <metal>
-                <albedo_map>circuit_track_d1.png</albedo_map>
-                <normal_map>circuit_track_d1.png</normal_map>
-              </metal>
-            </pbr>
+            <ambient>0.1 0.1 0.1 0.1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+   	    <pbr>
+   	      <metal>
+   	        <albedo_map>track_line_v1.png</albedo_map>
+   	        <normal_map>track_line_v1.png</normal_map>
+   	      </metal>
+   	    </pbr>
           </material>
         </visual>
       </link>
+      <static>1</static>
     </model>
     
     <model name="JetTec_Robot">
@@ -654,18 +654,7 @@
             <joint_name>rear_right_wheel_joint</joint_name>
             <joint_name>camera_joint</joint_name>
         </plugin>
-
-        <plugin
-            filename="gz-sim-odometry-publisher-system"
-            name="gz::sim::systems::OdometryPublisher">
-            <odom_frame>odom</odom_frame>
-            <odom_covariance_topic>odometry_with_covariance</odom_covariance_topic>
-            <tf_topic>tf</tf_topic>
-            <robot_base_frame>base_footprint</robot_base_frame>
-            <odom_topic>odom</odom_topic>
-        </plugin>
       
-
     </model>
     
   </world>

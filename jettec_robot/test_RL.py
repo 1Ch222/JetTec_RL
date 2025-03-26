@@ -14,7 +14,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import Twist
 
 # Paramètres globaux
-MAX_EPISODES = 50
+MAX_EPISODES = 300
 EPISODE_DURATION = 30  # durée d'un épisode en secondes
 
 def reset_world():
@@ -47,7 +47,7 @@ def reset_robot():
     "--reqtype", "ignition.msgs.Pose",
     "--reptype", "ignition.msgs.Boolean",
     "--timeout", "1000",
-    "--req", "name: 'JetTec_Robot' position: { x: -1.0, y: -0.9, z: 0.15 } orientation: { x: 0, y: 0, z: 0, w: 1 }"
+    "--req", "name: 'JetTec_Robot' position: { x: -0.5, y: -1.7, z: 0.15 } orientation: { x: 0.0, y: 0, z: 0.14, w: 1 }"
 ]
 
     try:
@@ -183,22 +183,26 @@ class JettecEnv(Node):
         return self.state, self.last_reward, self.done, {}
 
     def reset(self):
-        """
-        Réinitialise l'environnement en réinitialisant d'abord le monde, puis en repositionnant le robot.
-        """
-        self.get_logger().info("Resetting world via gz transport...")
-        reset_world()
-        time.sleep(1.0)  # laisser le temps au reset du monde
-        self.get_logger().info("Resetting robot position via set_pose service...")
-        reset_robot()
+    	self.get_logger().info("Resetting world via gz transport...")
+    	reset_world()
+    	time.sleep(1.0)
+    	self.get_logger().info("Resetting robot position via set_pose service...")
+    	reset_robot()
 
-        self.done = False
-        self.state = None
-        self.last_reward = 0.0
-        while self.state is None:
-            rclpy.spin_once(self, timeout_sec=0.1)
-            time.sleep(0.1)
-        return self.state
+    	# Attendre que la caméra détecte au moins une ligne
+    	self.done = False
+    	self.state = None
+    	self.last_reward = 0.0
+    	max_wait = 5.0  # attendre au maximum 5 secondes
+    	start_wait = time.time()
+    	while self.state is None and (time.time() - start_wait < max_wait):
+        	rclpy.spin_once(self, timeout_sec=0.1)
+        	time.sleep(0.1)
+    	if self.state is None:
+        	self.get_logger().warn("Aucune ligne détectée après reset, démarrage de l'épisode malgré tout.")
+        	self.state = 1  # état par défaut
+    	return self.state
+
 
 def simulate(env, q_table, alpha, gamma, epsilon, epsilon_decay):
     rewards = []

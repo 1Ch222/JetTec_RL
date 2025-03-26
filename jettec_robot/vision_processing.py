@@ -1,28 +1,12 @@
 #!/usr/bin/env python3
 
-import rclpy
 import cv2
 import numpy as np
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
-from rclpy.node import Node
 
-class ImageProcessor(Node):
+class VisionDistance:
     def __init__(self):
-        super().__init__('image_processor')
-        # Souscription au topic de la caméra (ajustez le nom du topic si besoin)
-        self.subscription = self.create_subscription(
-            Image,
-            '/rgbd_camera/image',
-            self.image_callback,
-            10
-        )
-        self.depth_subscription = self.create_subscription(
-            Image,
-            '/rgbd_camera/depth_image',
-            self.depth_callback,
-            10
-        )
         self.bridge = CvBridge()
 
         # Variables pour l'image RGB et Depth
@@ -36,7 +20,7 @@ class ImageProcessor(Node):
         try:
             self.rgb_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except CvBridgeError as e:
-            self.get_logger().error("Erreur de conversion: " + str(e))
+            print(f"Erreur de conversion: {str(e)}")
 
     def depth_callback(self, msg):
         """
@@ -45,11 +29,11 @@ class ImageProcessor(Node):
         try:
             self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='32FC1')  # Image de profondeur en float
         except CvBridgeError as e:
-            self.get_logger().error("Erreur de conversion de l'image de profondeur: " + str(e))
+            print(f"Erreur de conversion de l'image de profondeur: {str(e)}")
 
-        # Une fois l'image de profondeur reçue, calculer le point le plus proche
+        # Calcul des résultats après avoir reçu les deux images
         if self.rgb_image is not None and self.depth_image is not None:
-            self.calculate_and_display_results()
+            return self.calculate_and_display_results()
 
     def calculate_and_display_results(self):
         """
@@ -99,58 +83,23 @@ class ImageProcessor(Node):
                 cv2.putText(image_with_centroids, "Top", (top_point[0] + 10, top_point[1]),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-        # Si l'on a au moins un contour détecté, calculer le vecteur entre le centroïde et le top point
-        if contour_data:
-            # Ici, nous allons utiliser seulement le premier contour pour calculer le vecteur
-            centroid = contour_data[0]['centroid']
-            top_point = contour_data[0]['top']
-
-            # Calcul du vecteur entre le centroïde et le top point
-            vector = (top_point[0] - centroid[0], top_point[1] - centroid[1])
-
-            # Affichage du vecteur sous forme de flèche
-            cv2.arrowedLine(image_with_centroids, centroid, top_point, (255, 0, 0), 2)
-
-            # Calcul de l'angle entre le vecteur du centroïde au top point et le vecteur vertical
-            center_x = w // 2
-            start_point = (center_x, h)  # Point de départ au centre bas de l'image
-            end_point = (center_x, h - 100)  # Taille arbitraire de la flèche verticale (ici 100 pixels vers le haut)
-            vector_vertical = (end_point[0] - start_point[0], end_point[1] - start_point[1])
-
-            # Calcul de l'angle entre les deux vecteurs (en utilisant np.arctan2)
-            angle_rad = np.arctan2(vector[1], vector[0]) - np.arctan2(vector_vertical[1], vector_vertical[0])
-            
-            # Affichage de l'angle dans les logs
-            self.get_logger().info(f"Angle entre les vecteurs: {angle_rad:.2f} rad")
-
-            # Affichage de l'angle sur l'image
-            cv2.putText(image_with_centroids, f"Angle: {angle_rad:.2f} rad", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-        # Calcul du vecteur unitaire vertical partant du centre bas de l'image
-        center_x = w // 2
-        start_point = (center_x, h)  # Point de départ au centre bas de l'image (h = hauteur)
-        end_point = (center_x, h - 100)  # Taille arbitraire de la flèche verticale (ici 100 pixels vers le haut)
-        
-        # Dessiner un vecteur unitaire vertical (flèche) en cyan
-        cv2.arrowedLine(image_with_centroids, start_point, end_point, (255, 255, 0), 2)
-
-        # Trouver le point le plus proche de la ligne
+        # Calculer le point le plus proche de la ligne
         closest_point, closest_distance = self.find_closest_point(thresh, clipped_depth)
 
         # Dessiner le point le plus proche sur l'image
         if closest_point is not None:
             cv2.circle(image_with_centroids, closest_point, 10, (0, 255, 255), -1)  # Point en jaune
-
             # Afficher la distance sur l'image
             cv2.putText(image_with_centroids, f"Distance: {closest_distance:.2f} m", (closest_point[0] + 10, closest_point[1]),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-        # Affichage dans trois fenêtres
+        # Affichage dans deux fenêtres
         cv2.imshow('Image Threshold', thresh)  # Afficher l'image seuillée
         cv2.imshow('Image with Centroids and Top Points', image_with_centroids)  # Afficher l'image originale avec les points et le vecteur
         cv2.imshow('Depth Map', self.depth_image)  # Afficher la carte de profondeur originale
         cv2.waitKey(1)
+
+        return centroid, top_point, closest_point, closest_distance
 
     def find_closest_point(self, thresh, clipped_depth):
         """
@@ -172,24 +121,6 @@ class ImageProcessor(Node):
             if depth_value < min_distance:
                 min_distance = depth_value
                 closest_point = (x, y)
-                
-        if closest_point is not None:
-            self.get_logger().info(f"Point le plus proche trouvé à la position {closest_point} avec une distance de {min_distance:.2f} mètres")
-
 
         return closest_point, min_distance if closest_point is not None else (None, None)
-
-def main(args=None):
-    rclpy.init(args=args)
-    node = ImageProcessor()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    cv2.destroyAllWindows()
-    node.destroy_node()
-    rclpy.shutdown()
-
-if __name__ == '__main__':
-    main()
 

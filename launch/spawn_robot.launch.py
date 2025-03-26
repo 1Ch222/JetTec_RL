@@ -113,5 +113,5 @@ def generate_launch_description():
         robot_state_publisher,
         joint_state_publisher,
         bridge, 
-        #rviz_node
+        rviz_node
         ])

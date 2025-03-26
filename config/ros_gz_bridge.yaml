@@ -19,7 +19,7 @@
   gz_type_name: "gz.msgs.Clock"
   direction: GZ_TO_ROS
 - ros_topic_name: "/odom"
-  gz_topic_name: "/odom"
+  gz_topic_name: "/model/JetTec_Robot/odometry"
   ros_type_name: "nav_msgs/msg/Odometry"
   gz_type_name: "gz.msgs.Odometry"
   direction: GZ_TO_ROS
@@ -63,3 +63,4 @@
   ros_type_name: "std_srvs/srv/Empty"
   gz_type_name: "ignition.msgs.Empty"
   direction: ROS_TO_GZ
+

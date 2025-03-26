@@ -1,0 +1,26 @@
+material Custom/track_b_y
+{
+  technique
+    {
+      pass
+      {
+        lightibg off
+          
+        ambient 1.0 1.0 1.0 1.0
+        diffuse 1.0 1.0 1.0 1.0
+        specular 0.0 0.0 0.0 0.0
+        emissive 0.0 0.0 0.0
+          
+        scene_blend alpha_blend
+        depth_write off
+          
+        texture_unit
+        {
+          texture track_b_y.png
+          tex_coord_set 0
+          colour_op modulate
+        }
+      }
+    }
+  }
+}  
