@@ -114,36 +114,38 @@ class VisionDistance:
         return self.rgb_image is not None and self.depth_image is not None
 
     def calculate_and_display_results(self):
+        # Découpage de l'image
         h, w, _ = self.rgb_image.shape
         clipped_rgb = self.rgb_image[int(h * 0.5):, :]
         clipped_depth = self.depth_image[int(h * 0.5):, :]
+
+        # Prétraitement de l'image
         gray = cv2.cvtColor(clipped_rgb, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray, (5, 5), 0)
         _, thresh = cv2.threshold(blur, THRESHOLD, 255, cv2.THRESH_BINARY_INV)
-        cv2.imshow("Threshold", thresh)
-        cv2.waitKey(1)
+    
+        # Recherche des contours
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > MIN_AREA]
+    
         image_with_centroids = clipped_rgb.copy()
-        if filtered_contours:
-            cnt = filtered_contours[0]
-            M = cv2.moments(cnt)
-            if M['m00'] != 0:
-                cx = int(M['m10'] / M['m00'])
-                cy = int(M['m01'] / M['m00'])
-                centroid = (cx, cy)
-                top_point = min(cnt, key=lambda p: p[0][1])[0]
-                cv2.circle(image_with_centroids, centroid, 5, (0, 0, 255), -1)
-                cv2.circle(image_with_centroids, (top_point[0], top_point[1]), 7, (0, 255, 0), -1)
-                cv2.putText(image_with_centroids, "Top", (top_point[0] + 10, top_point[1]),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-                # Calcul du vecteur entre le centroïde et le top point
-                vector = (top_point[0] - centroid[0], top_point[1] - centroid[1])
-                vertical = (0, -1)
-                angle_rad = np.arctan2(vector[1], vector[0]) - np.arctan2(vertical[1], vertical[0])
-                angle_rad = math.atan2(math.sin(angle_rad), math.cos(angle_rad))
+        if contours:
+            # Utiliser directement le plus grand contour
+            cnt = max(contours, key=cv2.contourArea)
+            if cv2.contourArea(cnt) > MIN_AREA:
+                # Utilisation de cv2.fitLine pour obtenir la droite de régression sur le contour
+                [vx, vy, x0, y0] = cv2.fitLine(cnt, cv2.DIST_L2, 0, 0.01, 0.01)
+                # Calcul de l'angle à partir du vecteur directeur (vx, vy)
+                angle_rad = np.arctan2(vy, vx)[0]
                 self.theta = angle_rad
-                closest_point, closest_distance = self.find_closest_point(thresh, clipped_depth)
+
+                # Optionnel : tracer la droite ajustée pour la visualisation
+                # Choisir deux points le long de la droite pour l'affichage
+                lefty = int((-x0 * vy / vx) + y0)
+                righty = int(((w - x0) * vy / vx) + y0)
+                cv2.line(image_with_centroids, (w - 1, righty), (0, lefty), (255, 0, 0), 2)
+
+                # Calcul de la distance (la fonction find_closest_point reste inchangée)
+                _, closest_distance = self.find_closest_point(thresh, clipped_depth)
                 self.distance = closest_distance
             else:
                 self.theta = None
@@ -151,6 +153,8 @@ class VisionDistance:
         else:
             self.theta = None
             self.distance = None
+
+    # Option : supprimer l'affichage si non nécessaire
         cv2.imshow("Centroids", image_with_centroids)
         cv2.waitKey(1)
 
@@ -159,6 +163,7 @@ class VisionDistance:
         else:
             print("Theta or Distance is None.")
         return self.theta, self.distance
+
 
     def find_closest_point(self, thresh, clipped_depth):
         y_indices, x_indices = np.where(thresh == 255)
