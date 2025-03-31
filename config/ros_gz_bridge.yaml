@@ -1,7 +1,7 @@
 - ros_topic_name: "/cmd_vel"
-  gz_topic_name: "/cmd_vel"
+  ign_topic_name: "/cmd_vel"
   ros_type_name: "geometry_msgs/msg/Twist"
-  gz_type_name: "gz.msgs.Twist"
+  ign_type_name: "ignition.msgs.Twist"
   direction: BIDIRECTIONAL
 - ros_topic_name: "/steer_angle"
   gz_topic_name: "/model/jettec_robot/steer_angle"

@@ -98,6 +98,15 @@ def generate_launch_description():
         ],
         output="screen",
     )
+    
+    ackermann_converter = Node(
+    	package="jettec_robot",
+    	executable="ackermann_to_twist",
+    	name="ackermann_to_twist",
+    	output="screen",
+    	parameters=[{"use_sim_time": True}],
+	)
+
 
     # rviz2
     rviz_node = Node(
@@ -107,11 +116,13 @@ def generate_launch_description():
         name="sim_rviz2",
         arguments=['-d', 'src/jettec_robot/rviz/rviz.rviz']    
         )
+        
 
     return LaunchDescription([
         gz_sim,
         robot_state_publisher,
         joint_state_publisher,
         bridge, 
+        ackermann_converter,
         rviz_node
         ])

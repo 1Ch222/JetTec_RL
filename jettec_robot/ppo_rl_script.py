@@ -21,23 +21,33 @@ LEARNING_RATE = 1e-3        # Learning rate for the optimizer
 GAMMA = 0.99                # Discount factor for future rewards
 CLIP_EPSILON = 0.2          # PPO clip parameter
 ACTION_STD = 0.5            # Standard deviation for action distribution
-EPOCHS = 10                 # Number of epochs (update iterations per PPO update)
-EPISODES_PER_EPOCH = 100    # Episodes per epoch
+EPOCHS = 1                 # Number of epochs (update iterations per PPO update)
+EPISODES_PER_EPOCH = 1000    # Episodes per epoch
 
-Kp = 1.0                    # PID proportional gain
-Ki = 0.0                    # PID integral gain
-Kd = 0.1                    # PID derivative gain
+Kp = 5.0                    # PID proportional gain
+Ki = 3.0                    # PID integral gain
+Kd = 3.0                    # PID derivative gain
 
 THRESHOLD = 30              # Threshold for binary image processing
 MIN_AREA = 500              # Minimum contour area to consider
 
+MIN_SPEED = 0               # (m/s)
+MAX_SPEED = 1
+
+# --- Nouveaux hyperparamètres pour la récompense ---
+ALPHA_LINE = 1.0            # Coefficient pour la récompense de distance à la ligne
+ALPHA_HEADING = 0.7         # Coefficient pour la récompense d'alignement
+ALPHA_SPEED = 0.5           # Coefficient pour la récompense de vitesse
+D_LINE_MIN = 0.24           # Distance de référence (m)
+V_MAX = 1.5                 # Vitesse maximale pour normalisation (m/s)
+
 # --- Reset Functions ---
 def reset_world():
     cmd = [
-        "ign", "service", "-s", "/world/Line_track/reset_simulation",
-        "--reqtype", "ignition.msgs.Empty",
-        "--reptype", "ignition.msgs.Empty",
-        "--timeout", "1000"
+        "ign", "service", "-s", "/world/Line_track/control",
+        "--reqtype", "gz.msgs.WorldControl",
+        "--reptype", "gz.msgs.Boolean",
+        "--timeout", "3000"
     ]
     try:
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -64,6 +74,7 @@ def reset_robot():
             print("Failed to reset robot using set_pose service. Error:", result.stderr)
     except Exception as e:
         print("Exception during robot reset using set_pose service:", e)
+
 
 # --- VisionDistance Class ---
 class VisionDistance:
@@ -142,10 +153,11 @@ class VisionDistance:
             self.distance = None
         cv2.imshow("Centroids", image_with_centroids)
         cv2.waitKey(1)
-        if self.theta is not None:
+
+        if self.theta is not None and self.distance is not None:
             print(f"Calculated theta: {self.theta:.2f} rad, Distance: {self.distance:.2f} m")
         else:
-            print("Theta is None.")
+            print("Theta or Distance is None.")
         return self.theta, self.distance
 
     def find_closest_point(self, thresh, clipped_depth):
@@ -157,7 +169,11 @@ class VisionDistance:
             if depth_value < min_distance:
                 min_distance = depth_value
                 closest_point = (x, y)
-        return closest_point, min_distance if closest_point is not None else (None, None)
+        if closest_point is not None:
+            return closest_point, min_distance
+        else:
+            return None, None
+
 
 # --- PID Controller ---
 class PIDController:
@@ -292,29 +308,56 @@ class LineFollowingEnv:
     def reset(self):
         reset_world()
         reset_robot()
+
+        # Remise à zéro des roues via cmd_vel
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        self.publisher.publish(twist)
+        time.sleep(0.1)
+    
         time.sleep(2)
         self.start_time = time.time()
         self.state = [0.0, 0.0, 0.0, 0.0]
         self.previous_position = self.odom_listener.current_position
+
+        # Attendre que la caméra soit prête
         max_wait = 5.0
         start_wait = time.time()
         while not self.vision_distance.is_ready() and (time.time() - start_wait < max_wait):
             rclpy.spin_once(self.node, timeout_sec=0.1)
             cv2.waitKey(1)
             time.sleep(0.1)
-        if self.state is None:
-            self.state = [0.0, 0.0, 0.0, 0.0]
+    
+        # Attendre que la ligne soit détectée (θ non nul)
+        line_detected = False
+        max_line_wait = 5.0  # délai maximum d'attente pour la détection de la ligne
+        line_start = time.time()
+        while not line_detected and (time.time() - line_start < max_line_wait):
+            theta, distance = self.vision_distance.calculate_and_display_results()
+            if theta is not None:
+                line_detected = True
+            else:
+                rclpy.spin_once(self.node, timeout_sec=0.1)
+                cv2.waitKey(1)
+                time.sleep(0.1)
+        if not line_detected:
+            self.node.get_logger().warn("Ligne non détectée lors du reset; début de l'épisode malgré tout.")
         return self.state
+
 
     def step(self, action):
         # Utilisation de l'action (commandes directes) pour commander le robot
         desired_linear_velocity = action[0].item() if isinstance(action, torch.Tensor) else action[0]
         desired_angular_velocity = action[1].item() if isinstance(action, torch.Tensor) else action[1]
+        print(desired_angular_velocity, desired_linear_velocity)
         twist = Twist()
         twist.linear.x = desired_linear_velocity
         twist.angular.z = desired_angular_velocity
         self.publisher.publish(twist)
-        time.sleep(0.1)
+        # On fixe l'intervalle de temps à 0.1 s
+        dt = 0.1
+        time.sleep(dt)
         # Calcul du déplacement réel via odométrie
         current_pos = self.odom_listener.current_position
         if self.previous_position is None:
@@ -325,6 +368,7 @@ class LineFollowingEnv:
 
         # Calcul de theta et de la distance via vision
         theta, distance = self.vision_distance.calculate_and_display_results()
+
         # Si theta ou distance invalide, terminer l'épisode avec une forte pénalité
         if theta is None or distance is None or distance == 0:
             self.node.get_logger().warn("Line lost: theta or distance invalid. Terminating episode.")
@@ -341,16 +385,15 @@ class LineFollowingEnv:
             return self.state, self.last_reward, self.done, {}
 
         self.done = False
-        # Calcul de la récompense basée sur theta et distance
-        reward_angle = 1 if abs(theta) < 0.3 else 0.5 if abs(theta) < 0.5 else -0.5
-        reward_distance = 1 if distance < 0.25 else 0.5 if distance < 0.35 else -0.5
-        reward = reward_angle + reward_distance
 
-        # Si le robot ne bouge pas (déplacement inférieur à 1 cm), ajouter une pénalité
-        if moved_distance < 0.01:
-            penalty = -1 * desired_linear_velocity  # Plus la vitesse désirée est élevée, plus la pénalité est forte
-            self.node.get_logger().warn(f"Robot not moving. Penalty: {penalty:.2f}")
-            reward += penalty
+        # Calcul de la vitesse réelle
+        V_real = moved_distance / dt if dt != 0 else 0
+
+        # Calcul des nouvelles récompenses
+        reward_line = ALPHA_LINE * (1 - min(distance / D_LINE_MIN, 1))
+        reward_heading = ALPHA_HEADING * math.cos(theta)
+        reward_speed = ALPHA_SPEED * (V_real / V_MAX)
+        reward = reward_line + reward_heading + reward_speed
 
         self.last_reward = reward
         return self.state, self.last_reward, self.done, {}

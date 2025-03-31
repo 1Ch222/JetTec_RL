@@ -30,7 +30,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'line_follower = jettec_robot.line_follower:main'
+            'ackermann_to_twist = jettec_robot.ackermann_to_twist:main',
         ],
     },
 )
