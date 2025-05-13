@@ -11,7 +11,7 @@
 #
 
 """
-Sensor module for line following JetTec rover. Returns offset between the rover's camera 
+Vision module for line following JetTec rover. Returns offset between the rover's camera 
 and the line, and the processed image.
 """
 
