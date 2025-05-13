@@ -18,7 +18,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from jettec_robot.model import CNNActorCritic
+from jettec_robot.line_following.model_line import CNNActorCritic
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
