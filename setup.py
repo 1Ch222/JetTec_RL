@@ -17,9 +17,7 @@ setup(
         ('share/' + package_name + '/world', glob('world/*.sdf')),
         ('share/' + package_name + '/model', glob('model/*.sdf')),
         ('share/' + package_name + '/world', glob('world/*.png')),
-        ('share/' + package_name + '/config', glob('config/*.yaml')),
-        ('share/' + package_name + '/rviz', glob('rviz/*.rviz')),  
-        ('share/' + package_name, ['spawn_robot.py']),      
+        ('share/' + package_name + '/config', glob('config/*.yaml')),    
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -30,7 +28,12 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'ackermann_to_twist = jettec_robot.ackermann_to_twist:main',
+            'vision_line_node = jettec_robot.line_following.vision_line_node:main',
+            'training_line_node = jettec_robot.line_following.training_line_node:main',
+            'testing_line_node = jettec_robot.line_following.testing_line_node:main',
+            'vision_path_node = jettec_robot.path_following.vision_path_node:main',
+            'training_path_node = jettec_robot.path_following.training_path_node:main',
+            'testing_path_node = jettec_robot.path_following.testing_path_node:main',
         ],
     },
 )
