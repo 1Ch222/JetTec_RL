@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #               
 #            ___________________________________
-#           /____   ____________   ____________/           
+#           /___   _______/  /_   _____________/           
 #              /  /    /_    _/  /                     
 #        ___  /  /___   /  / /  /___    ____ 
 #       /  / /  / __  \/  / /  / __  \/   _ /       
@@ -11,30 +11,36 @@
 #
 
 """
-Model  
-
+CNN-based Actor-Critic model for reinforcement learning.
+Processes images to output action distributions and value estimates.
 """
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class CNNActorCritic(nn.Module):
     def __init__(self, input_channels=1, action_size=1, std=0.5):
+        """
+        Args:
+            input_channels (int): Number of input channels (e.g., 1 for grayscale).
+            action_size (int): Number of action outputs.
+            std (float): Initial standard deviation for action distribution.
+            device (torch.device, optional): Computation device.
+        """
         super().__init__()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(input_channels, 16, kernel_size=5, stride=2),  # -> [16, 40, 40]
+            nn.Conv2d(input_channels, 16, kernel_size=5, stride=2),  
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=5, stride=2),               # -> [32, 18, 18]
+            nn.Conv2d(16, 32, kernel_size=5, stride=2),               
             nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=2),               # -> [32, 8, 8]
+            nn.Conv2d(32, 32, kernel_size=3, stride=2),            
             nn.ReLU(),
-            nn.Flatten()                                              # -> [2048]
+            nn.Flatten() 
         )
 
-        conv_output_size = 32 * 8 * 8  # for 84x84
+        conv_output_size = 32 * 8 * 8  # Excpected output for 84x84 input size
 
         self.fc = nn.Sequential(
             nn.Linear(conv_output_size, 128),
@@ -59,7 +65,7 @@ class CNNActorCritic(nn.Module):
         return dist, value
 
     def extract_features(self, x):
-        # returns features after flatten (1D), useful to "visualise" what the robot extracts from images
+        """Returns extracted features after the flattening layer."""
         x = x.to(self.device)
         with torch.no_grad():
             for layer in self.conv_layers:
@@ -70,14 +76,10 @@ class CNNActorCritic(nn.Module):
         return x
 
     def extract_feature_maps(self, x):
-        # Before flatten -> [C, H, W]
+        """Returns feature maps before the flatten layer."""
         x = x.to(self.device)
         with torch.no_grad():
-            x = self.conv_layers[0](x)  # Conv1
-            x = self.conv_layers[1](x)  # ReLU
-            x = self.conv_layers[2](x)  # Conv2
-            x = self.conv_layers[3](x)  # ReLU
-            x = self.conv_layers[4](x)  # Conv3
-            x = self.conv_layers[5](x)  # ReLU
-        return x.squeeze(0)  # returns [C, H, W]
+            for i in range(6):
+                x = self.conv_layers[i](x)
+        return x.squeeze(0) 
 
