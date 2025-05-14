@@ -11,23 +11,36 @@
 #
 
 """
-Vision module for line following JetTec rover. Returns offset between the rover's camera 
-and the line, and the processed image.
+Vision processing for line following with JetTec rover.
+Calculates the offset between the rover's camera and the detected line.
 """
 
 import cv2
 import numpy as np
 
-THRESHOLD = 30
-MIN_AREA = 500
-
 class Vision:
-    def __init__(self, image, debug=True):
+    def __init__(self, image, threshold=30, min_area=500, debug=True):
+        """
+        Args:
+            image (np.array): RGB image from the camera.
+            threshold (int): Threshold value for binarization.
+            min_area (int): Minimum area to consider a contour as valid.
+            debug (bool): Debug mode (not used yet but could help).
+        """
         self.rgb_image = image
+        self.threshold = threshold
+        self.min_area = min_area
         self.x_offset = None
         self.debug = debug
 
     def calculate_offset_and_threshold(self):
+        """
+        Processes the image and calculates the horizontal offset.
+
+        Returns:
+            x_offset (float): Offset normalized between -1 and 1. None if not found.
+            processed_image (np.array): Thresholded and resized image.
+        """
         h, w, _ = self.rgb_image.shape
         clipped_rgb = self.rgb_image[int(h * 0.5):, :]
         gray = cv2.cvtColor(clipped_rgb, cv2.COLOR_BGR2GRAY)
