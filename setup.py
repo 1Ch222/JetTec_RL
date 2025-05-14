@@ -6,7 +6,7 @@ package_name = 'jettec_robot'
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='0.1.0',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -23,7 +23,7 @@ setup(
     zip_safe=True,
     maintainer='mrsl',
     maintainer_email='137825924+1Ch222@users.noreply.github.com',
-    description='TODO: Package description',
+    description='Package for controlling and simulating a line and path-following rover with ROS2 and Gazebo Ignition (Fortress).',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
