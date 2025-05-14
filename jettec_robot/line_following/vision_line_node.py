@@ -11,7 +11,8 @@
 #
 
 """
-
+ROS2 Node for line following vision processing.
+Subscribes to RGB images, processes them to find the line, and publishes the offset and processed image.
 """
 
 import rclpy
@@ -41,13 +42,13 @@ class VisionNode(Node):
             vision = Vision(cv_image, debug=True)
             offset, processed_image = vision.calculate_offset_and_threshold()
 
-            # Publier l'offset (ou NaN si non détecté)
+            # Publish offset (or NaN if none found)
             if offset is not None:
                 self.offset_publisher.publish(Float32(data=offset))
             else:
                 self.offset_publisher.publish(Float32(data=float('nan')))
 
-            # Publier l'image traitée vers le topic /processed_image
+            # Publish processed image
             processed_image = processed_image.astype(np.uint8)  # sécurité
             ros_img = self.bridge.cv2_to_imgmsg(processed_image, encoding="mono8")
             self.image_publisher.publish(ros_img)
