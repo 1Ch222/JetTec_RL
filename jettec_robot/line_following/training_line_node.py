@@ -63,10 +63,11 @@ SAVE_INTERVAL_EPISODES = 10
 MAX_EPISODES = 10000
 
 SPAWN_POSES = [
-    "name: 'JetTec_Robot' position: { x: 2.2, y: -3.3, z: 0.15 } orientation: { x: 0, y: 0, z: 1.0, w: 0.0 }",
-    "name: 'JetTec_Robot' position: { x: -3.8, y: -1.4, z: 0.15 } orientation: { x: 0, y: 0, z: 1.0, w: 1.0 }",
-    "name: 'JetTec_Robot' position: { x: 1.7, y: -1.6, z: 0.15 } orientation: { x: 0, y: 0, z: 1.0, w: 1.0 }",
-    "name: 'JetTec_Robot' position: { x: -1.0, y: 3.6, z: 0.15 } orientation: { x: 0, y: 0, z: 0, w: 1 }"
+    "name: 'JetTec_Robot' position: { x: -1.38, y: -0.69, z: 0.15 } orientation: { x: 0, y: 0, z: 0, w: 1.0 }",
+    "name: 'JetTec_Robot' position: { x: -0.17, y: 2.32, z: 0.15 } orientation: { x: 0, y: 0, z: 0, w: 1.0 }",
+    "name: 'JetTec_Robot' position: { x: 3.92, y: 0.50, z: 0.15 } orientation: { x: 0, y: 0, z: -0.8, w: 0.59 }",
+    "name: 'JetTec_Robot' position: { x: -0.30, y: 0.25, z: 0.15 } orientation: { x: 0, y: 0, z: 0.91, w: 0.40 }",
+    "name: 'JetTec_Robot' position: { x: -3.75, y: 0.02, z: 0.15 } orientation: { x: 0, y: 0, z: 0.69, w: 0.72 }",
 ]
 
 class PPOTrainerNode(Node):
@@ -86,8 +87,10 @@ class PPOTrainerNode(Node):
 
         # Agent setup
         self.agent = Agent(NUM_AGENTS, IMAGE_SIZE[0], ACTION_SIZE)
-        self.model_for_viz = CNNActorCritic(1, ACTION_SIZE).to(self.agent.model.device)
+        self.model_for_viz = CNNActorCritic(1, ACTION_SIZE, device=self.agent.model.device)
         self.model_for_viz.load_state_dict(self.agent.model.state_dict())
+        self.model_for_viz.to(self.agent.model.device)  # obligatoire après load_state_dict !
+
 
         if load_model_path:
             self.get_logger().warn(f"📦 Loading model from {load_model_path}")
@@ -135,14 +138,19 @@ class PPOTrainerNode(Node):
 
         # Stop the robot momentarily
         self.publish_velocity(0.0, 0.0)
-
+        self.get_logger().info(f"offset : {self.latest_offset}")
+	
         # Process state
         state = self.latest_image.to(self.agent.model.device)
         self.show_features(state)
 
         # Reward computation
-        reward = 1.0 - self.latest_offset ** 2 if self.latest_offset is not None and not isnan(self.latest_offset) else -1.0
-        self.lost_steps = 0 if reward > -1.0 else self.lost_steps + 1
+        offset = self.latest_offset
+        if offset is not None and not isnan(offset):
+            offset = np.clip(offset, -1.0, 1.0)
+            reward = 1.0 - offset ** 2
+        else:
+            reward = -1.0
 
         # Log
         self.writer.add_scalar("reward/step", reward, self.step_counter)
@@ -257,10 +265,11 @@ class PPOTrainerNode(Node):
 def main(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--load", type=str, help="Path to a .pth model", default=None)
-    args, _ = parser.parse_known_args()
+    parsed_args, remaining = parser.parse_known_args()
 
-    rclpy.init(args=args)
-    node = PPOTrainerNode(load_model_path=args.load)
+    rclpy.init(args=remaining)
+    node = PPOTrainerNode(load_model_path=parsed_args.load)
+
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
