@@ -10,6 +10,8 @@
 #       
 #
 
+# -*- coding: utf-8 -*-
+
 """
 CNN-based Actor-Critic model for reinforcement learning.
 Processes images to output action distributions and value estimates.
@@ -19,7 +21,7 @@ import torch
 import torch.nn as nn
 
 class CNNActorCritic(nn.Module):
-    def __init__(self, input_channels=1, action_size=1, std=0.5):
+    def __init__(self, input_channels=1, action_size=1, std=0.5, device=None):
         """
         Args:
             input_channels (int): Number of input channels (e.g., 1 for grayscale).
@@ -31,16 +33,16 @@ class CNNActorCritic(nn.Module):
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(input_channels, 16, kernel_size=5, stride=2),  
+            nn.Conv2d(input_channels, 16, kernel_size=5, stride=2),
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=5, stride=2),               
+            nn.Conv2d(16, 32, kernel_size=5, stride=2),
             nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=2),            
+            nn.Conv2d(32, 32, kernel_size=3, stride=2),
             nn.ReLU(),
-            nn.Flatten() 
+            nn.Flatten()
         )
 
-        conv_output_size = 32 * 8 * 8  # Excpected output for 84x84 input size
+        conv_output_size = 32 * 8 * 8  # Expected output for 84x84 input size
 
         self.fc = nn.Sequential(
             nn.Linear(conv_output_size, 128),
@@ -51,13 +53,12 @@ class CNNActorCritic(nn.Module):
         self.critic_head = nn.Linear(128, 1)
         self.log_std = nn.Parameter(torch.ones(1, action_size) * std)
 
+        # Move entire model to the selected device
+        self.to(self.device)
+
     def forward(self, x):
-        #print(f"[MODEL] Input shape: {x.shape}")
-        x = x.to(self.device)
         features = self.conv_layers(x)
-        #print(f"[MODEL] Features shape (after conv): {features.shape}")
         x = self.fc(features)
-        #print(f"[MODEL] After FC shape: {x.shape}")
         mu = torch.tanh(self.actor_head(x))
         value = self.critic_head(x)
         std = self.log_std.exp().expand_as(mu)
@@ -66,7 +67,7 @@ class CNNActorCritic(nn.Module):
 
     def extract_features(self, x):
         """Returns extracted features after the flattening layer."""
-        x = x.to(self.device)
+        x = x.to(self.device)   # <<<<<< AJOUT
         with torch.no_grad():
             for layer in self.conv_layers:
                 x = layer(x)
@@ -77,9 +78,8 @@ class CNNActorCritic(nn.Module):
 
     def extract_feature_maps(self, x):
         """Returns feature maps before the flatten layer."""
-        x = x.to(self.device)
+        x = x.to(self.device)   # <<<<<< AJOUT
         with torch.no_grad():
             for i in range(6):
                 x = self.conv_layers[i](x)
-        return x.squeeze(0) 
-
+        return x.squeeze(0)
