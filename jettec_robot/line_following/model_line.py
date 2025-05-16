@@ -10,8 +10,6 @@
 #       
 #
 
-# -*- coding: utf-8 -*-
-
 """
 CNN-based Actor-Critic model for reinforcement learning.
 Processes images to output action distributions and value estimates.
