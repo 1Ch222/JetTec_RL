@@ -28,10 +28,11 @@ import sys
 import time
 import signal
 import subprocess
-import argparse
 import numpy as np
 import torch
 import cv2
+import math as m
+import random
 
 import rclpy
 from rclpy.node import Node
@@ -44,17 +45,13 @@ from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
 from torch.utils.tensorboard import SummaryWriter
 
-from math import isnan
 from datetime import datetime
+from math import isnan
 
 from jettec_robot.line_following.agent_line import Agent
-from jettec_robot.line_following.model_line import CNNActorCritic
+from jettec_robot.line_following.model_line import CNNActor, CNNCritic
 
-# === CONFIGURATION ===
-ROLLOUT_START = 64
-ROLLOUT_MAX = 512
-ROLLOUT_STEP = 16
-ROLLOUT_FREQ = 600
+# === TRAINING PARAMETERS ===
 NUM_AGENTS = 1
 ACTION_SIZE = 1
 LINEAR_VELOCITY = 1.0
@@ -62,176 +59,186 @@ IMAGE_SIZE = (1, 84, 84)
 SAVE_INTERVAL_EPISODES = 10
 MAX_EPISODES = 10000
 
+ROLLOUT_LENGTH = 512
+BUFFER_THRESHOLD = 4096
+
 SPAWN_POSES = [
-    "name: 'JetTec_Robot' position: { x: -1.38, y: -0.69, z: 0.15 } orientation: { x: 0, y: 0, z: 0, w: 1.0 }",
-    "name: 'JetTec_Robot' position: { x: -0.17, y: 2.32, z: 0.15 } orientation: { x: 0, y: 0, z: 0, w: 1.0 }",
-    "name: 'JetTec_Robot' position: { x: 3.92, y: 0.50, z: 0.15 } orientation: { x: 0, y: 0, z: -0.8, w: 0.59 }",
-    "name: 'JetTec_Robot' position: { x: -0.30, y: 0.25, z: 0.15 } orientation: { x: 0, y: 0, z: 0.91, w: 0.40 }",
-    "name: 'JetTec_Robot' position: { x: -3.75, y: 0.02, z: 0.15 } orientation: { x: 0, y: 0, z: 0.69, w: 0.72 }",
+    "name: 'JetTec_Robot' position: { x: -2.28, y: -2.65, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: 0.84, w: 0.53 }",
+    "name: 'JetTec_Robot' position: { x: -1.16, y: -1.07, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }",
+    #"name: 'JetTec_Robot' position: { x: -1.78, y: 0.87, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: -0.53, w: 0.84 }",
+    #"name: 'JetTec_Robot' position: { x: -0.41, y: 2.24, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: 0.86, w: 0.49 }",
+    #"name: 'JetTec_Robot' position: { x: 0.92, y: 3.83, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: -0.54, w: 0.83 }",
+    #"name: 'JetTec_Robot' position: { x: -0.91, y: -1.19, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: 0.04, w: 0.99 }",
 ]
 
-class PPOTrainerNode(Node):
-    """ROS2 node for training the JetTec line-following agent using PPO."""
+LOAD_MODEL_PATH = "/home/mrsl/ros2_ws/checkpoints/20250522_193114/checkpoint_ep2060.pth"
 
-    def __init__(self, load_model_path=None):
+def set_seed(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+class PPOTrainerNode(Node):
+    def __init__(self):
         super().__init__('trainer_node')
         self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
-        # Setup paths for saving
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.checkpoint_dir = f"checkpoints/{run_id}"
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         self.tensorboard_log = f"runs/jettec_run_{run_id}"
+        self.get_logger().info("\U0001f9e0 PPOTrainerNode launched.")
 
-        self.get_logger().info("🧠 PPOTrainerNode launched.")
-
-        # Agent setup
         self.agent = Agent(NUM_AGENTS, IMAGE_SIZE[0], ACTION_SIZE)
-        self.model_for_viz = CNNActorCritic(1, ACTION_SIZE, device=self.agent.model.device)
-        self.model_for_viz.load_state_dict(self.agent.model.state_dict())
-        self.model_for_viz.to(self.agent.model.device)  # obligatoire après load_state_dict !
+        self.model_for_viz = CNNActor(1, ACTION_SIZE, device=self.agent.device)
+        self.model_for_viz.load_state_dict(self.agent.actor.state_dict())
+        self.model_for_viz.to(self.agent.device)
 
+        if LOAD_MODEL_PATH:
+            self.get_logger().warn(f"\U0001f4e6 Loading checkpoint from {LOAD_MODEL_PATH}")
+            checkpoint = torch.load(LOAD_MODEL_PATH)
+            self.agent.actor.load_state_dict(checkpoint['actor_state_dict'])
+            self.agent.critic.load_state_dict(checkpoint['critic_state_dict'])
+            if 'actor_optimizer' in checkpoint:
+                self.agent.actor_optim.load_state_dict(checkpoint['actor_optimizer'])
+            if 'critic_optimizer' in checkpoint:
+                self.agent.critic_optim.load_state_dict(checkpoint['critic_optimizer'])
+            self.episode = checkpoint.get('episode', 0)
+        else:
+            self.episode = 0
 
-        if load_model_path:
-            self.get_logger().warn(f"📦 Loading model from {load_model_path}")
-            self.agent.model.load_state_dict(torch.load(load_model_path))
-
-        # Tools
         self.bridge = CvBridge()
         self.writer = SummaryWriter(log_dir=self.tensorboard_log)
 
-        # States
         self.rollout = []
-        self.episode = 0
+        self.buffer = []
         self.step_counter = 0
         self.lost_steps = 0
-        self.rollout_length = ROLLOUT_START
+        self.rollout_length = ROLLOUT_LENGTH
+
         self.latest_offset = None
         self.latest_image = None
 
-        # ROS Communication
         self.create_subscription(Float32, '/line_offset', self.offset_callback, 10)
         self.create_subscription(Image, '/processed_image', self.image_callback, 10)
         self.publisher = self.create_publisher(Twist, '/cmd_vel', 10)
         self.timer = self.create_timer(0.1, self.training_step)
 
-        # Signal handling
         signal.signal(signal.SIGINT, self.handle_exit)
         signal.signal(signal.SIGTERM, self.handle_exit)
 
     def offset_callback(self, msg):
-        """Receives the latest line offset from vision."""
         self.latest_offset = msg.data
 
     def image_callback(self, msg):
-        """Receives the latest processed image."""
         try:
             cv_img = self.bridge.imgmsg_to_cv2(msg, "mono8")
             self.latest_image = torch.tensor(cv_img, dtype=torch.float32).unsqueeze(0).unsqueeze(0) / 255.0
         except Exception as e:
-            self.get_logger().error(f"❌ image_callback: {e}")
+            self.get_logger().error(f"\u274c image_callback: {e}")
 
     def training_step(self):
-        """Main training loop called periodically."""
         if self.latest_image is None:
             return
 
-        # Stop the robot momentarily
         self.publish_velocity(0.0, 0.0)
-        self.get_logger().info(f"offset : {self.latest_offset}")
-	
-        # Process state
-        state = self.latest_image.to(self.agent.model.device)
+        state = self.latest_image.to(self.agent.device)
         self.show_features(state)
 
-        # Reward computation
         offset = self.latest_offset
-        if offset is not None and not isnan(offset):
-            offset = np.clip(offset, -1.0, 1.0)
-            reward = 1.0 - offset ** 2
-        else:
-            reward = -1.0
+        reward = m.exp(-(offset**2)/(2*(0.2**2))) if offset is not None and not isnan(offset) else -1.0
 
-        # Log
         self.writer.add_scalar("reward/step", reward, self.step_counter)
         self.writer.add_scalar("tracking/lost_steps", self.lost_steps, self.step_counter)
         self.step_counter += 1
 
-        # Action selection
-        actions, log_probs, values = self.agent.act(state)
-        action = float(np.clip(actions.cpu().numpy()[0][0], -1.0, 1.0))
+        if state.dim() == 3:
+            state = state.unsqueeze(0)
+        if state.dim() == 4:
+            state = state.unsqueeze(0)
 
+        actions, log_probs, values, _ = self.agent.act(state)
+
+        action = float(np.clip(actions.cpu().numpy()[0][0], -1.0, 1.0))
         self.publish_velocity(LINEAR_VELOCITY, action)
 
-        # Store rollout step
-        self.rollout.append([
-            state, actions.detach(), log_probs.detach(),
-            [reward], [1.0], values.detach()
-        ])
+        self.rollout.append([state.detach(), actions.detach(), log_probs.detach(), [reward], [1.0], values.detach()])
 
-        # Train if enough rollout collected
         if len(self.rollout) >= self.rollout_length:
             self.train_policy(state)
 
     def publish_velocity(self, linear, angular):
-        """Publishes a velocity command to the robot."""
         twist = Twist()
         twist.linear.x = linear
         twist.angular.z = angular
         self.publisher.publish(twist)
 
     def train_policy(self, last_state):
-        """Trains the policy using collected rollouts."""
-        self.get_logger().info(f"📚 Training - episode {self.episode}")
-        pending_value = self.agent.model(last_state)[-1].detach()
-        self.rollout.append([last_state, None, None, None, None, pending_value])
-
-        self.agent.step(self.rollout, NUM_AGENTS, self.writer, self.episode)
-
-        total_reward = sum([r[3][0] for r in self.rollout[:-1]])
-        self.writer.add_scalar("reward/episode", total_reward, self.episode)
-
-        # Save model
-        if self.episode % SAVE_INTERVAL_EPISODES == 0:
-            ckpt = f"{self.checkpoint_dir}/model_ep{self.episode}.pth"
-            torch.save(self.agent.model.state_dict(), ckpt)
-            self.get_logger().info(f"💾 Model saved : {ckpt}")
-
-        # Rollout size progression
-        if self.episode % ROLLOUT_FREQ == 0 and self.rollout_length < ROLLOUT_MAX:
-            self.rollout_length = min(self.rollout_length + ROLLOUT_STEP, ROLLOUT_MAX)
-            self.get_logger().info(f"📈 ROLLOUT_LENGTH increased to {self.rollout_length}")
-
-        self.rollout.clear()
         self.episode += 1
 
+        if last_state.dim() == 3:
+            last_state = last_state.unsqueeze(0)
+        if last_state.dim() == 4:
+            last_state = last_state.unsqueeze(0)
+
+        _, _, last_value, _ = self.agent.act(last_state)
+        pending_value = last_value.detach()
+        self.rollout.append([last_state.detach(), None, None, None, None, pending_value])
+
+        self.buffer.extend(self.rollout[:-1])
+
+        if len(self.buffer) >= BUFFER_THRESHOLD:
+            self.get_logger().info(f"\U0001f4da Training on {len(self.buffer)} transitions")
+            self.buffer.append(self.rollout[-1])
+            self.agent.step(self.buffer, NUM_AGENTS, self.writer, self.episode)
+            self.buffer.clear()
+
+            total_reward = sum([r[3][0] for r in self.rollout[:-1]])
+            self.writer.add_scalar("reward/episode", total_reward, self.episode)
+
+            if self.episode % SAVE_INTERVAL_EPISODES == 0:
+                try:
+                    ckpt = f"{self.checkpoint_dir}/checkpoint_ep{self.episode}.pth"
+                    torch.save({
+                        'episode': self.episode,
+                        'actor_state_dict': self.agent.actor.state_dict(),
+                        'critic_state_dict': self.agent.critic.state_dict(),
+                        'actor_optimizer': self.agent.actor_optim.state_dict(),
+                        'critic_optimizer': self.agent.critic_optim.state_dict()
+                    }, ckpt)
+                    self.get_logger().info(f"\U0001f4be Unified checkpoint saved: {ckpt}")
+                except Exception as e:
+                    self.get_logger().error(f"\u274c Failed to save checkpoint: {e}")
+
+        self.rollout.clear()
+
         if self.episode >= MAX_EPISODES:
-            self.get_logger().info("🏁 Training finished.")
+            self.get_logger().info("\U0001f3c1 Training finished.")
             self.handle_exit(None, None)
         else:
             self.reset_robot()
 
     def reset_robot(self):
-        """Resets the robot to a random pose in the world."""
-        self.get_logger().warn("🔁 Resetting robot pose...")
+        self.get_logger().warn("\U0001f501 Resetting robot pose...")
         self.publish_velocity(0.0, 0.0)
         time.sleep(0.1)
 
         pose = np.random.choice(SPAWN_POSES)
-        cmd = [
-            "ign", "service", "-s", "/world/Line_track/set_pose",
-            "--reqtype", "ignition.msgs.Pose",
-            "--reptype", "ignition.msgs.Boolean",
-            "--timeout", "1000",
-            "--req", pose
-        ]
+        cmd = ["ign", "service", "-s", "/world/Line_track/set_pose",
+               "--reqtype", "ignition.msgs.Pose",
+               "--reptype", "ignition.msgs.Boolean",
+               "--timeout", "1000",
+               "--req", pose]
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         self.latest_image = None
         self.latest_offset = None
 
     def show_features(self, state_tensor):
-        """Displays extracted feature maps for visualization."""
         try:
             fmap = self.model_for_viz.extract_feature_maps(state_tensor).cpu()
             if fmap.ndim != 3 or fmap.shape[0] == 0:
@@ -246,30 +253,30 @@ class PPOTrainerNode(Node):
 
             vis = np.concatenate(maps, axis=1)
             vis_resized = cv2.resize(vis, (vis.shape[1]*2, vis.shape[0]*2))
-            cv2.namedWindow("🧠 Feature Maps", cv2.WINDOW_NORMAL)
-            cv2.imshow("🧠 Feature Maps", vis_resized)
+            cv2.namedWindow("\U0001f9e0 Feature Maps", cv2.WINDOW_NORMAL)
+            cv2.imshow("\U0001f9e0 Feature Maps", vis_resized)
             cv2.waitKey(1)
         except Exception as e:
-            self.get_logger().error(f"❌ show_features() failed: {e}")
+            self.get_logger().error(f"\u274c show_features() failed: {e}")
 
     def handle_exit(self, sig, frame):
-        """Handles clean shutdown and saves the final model."""
-        self.get_logger().warn("📅 Final model saved...")
-        torch.save(self.agent.model.state_dict(), f"{self.checkpoint_dir}/model_final.pth")
+        self.get_logger().warn("\U0001f4c5 Final model saved...")
+        torch.save({
+            'episode': self.episode,
+            'actor_state_dict': self.agent.actor.state_dict(),
+            'critic_state_dict': self.agent.critic.state_dict(),
+            'actor_optimizer': self.agent.actor_optim.state_dict(),
+            'critic_optimizer': self.agent.critic_optim.state_dict()
+        }, f"{self.checkpoint_dir}/checkpoint_final.pth")
         self.writer.close()
         cv2.destroyAllWindows()
         rclpy.shutdown()
         sys.exit(0)
 
-
 def main(args=None):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--load", type=str, help="Path to a .pth model", default=None)
-    parsed_args, remaining = parser.parse_known_args()
-
-    rclpy.init(args=remaining)
-    node = PPOTrainerNode(load_model_path=parsed_args.load)
-
+    set_seed(42)
+    rclpy.init()
+    node = PPOTrainerNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
