@@ -59,8 +59,8 @@ class Vision:
 
         bottom_left = (int(width * 0.05), height)
         bottom_right = (int(width * 0.95), height)
-        top_left = (int(width * 0.4), int(height * 0.55))
-        top_right = (int(width * 0.6), int(height * 0.55))
+        top_left = (int(width * 0.3), int(height * 0.5))
+        top_right = (int(width * 0.7), int(height * 0.5))
 
         roi_corners = np.array([[bottom_left, top_left, top_right, bottom_right]], dtype=np.int32)
         cv2.fillPoly(mask, [roi_corners], 255)
@@ -94,7 +94,7 @@ class Vision:
         histogram = np.sum(binary_warped[height//2:,:], axis=0)
         base_x = np.argmax(histogram)
 
-        nwindows = 9
+        nwindows = 10
         window_height = int(height / nwindows)
         x_current = base_x
         lane_inds = []
