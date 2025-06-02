@@ -26,7 +26,7 @@ SERVO_RIGHT = 6
 MOTOR_NEUTRAL = 15.0
 MOTOR_FORWARD = 20.0
 
-MODEL_PATH = "../checkpoints/checkpoint_ep7280.pth"
+MODEL_PATH = "ros2_ws/src/JetTec_RL/checkpoints/checkpoint_ep7280.pth"
 
 class PPOInferenceNode(Node):
     def __init__(self):
