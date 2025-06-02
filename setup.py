@@ -35,7 +35,7 @@ setup(
             'vision_path_node = jettec_robot.path_following.vision_path_node:main',
             'training_path_node = jettec_robot.path_following.training_path_node:main',
             'testing_path_node = jettec_robot.path_following.testing_path_node:main',
-            'transfer_node = jettec_robot.path_following.transfer:main',
+            'transfer_node = jettec_robot.path_following.transfer_node:main',
         ],
     },
 )
