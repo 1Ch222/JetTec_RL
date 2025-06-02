@@ -24,7 +24,7 @@ SERVO_CENTER = 11
 SERVO_LEFT = 15
 SERVO_RIGHT = 6
 MOTOR_NEUTRAL = 15.0
-MOTOR_FORWARD = 20.0
+MOTOR_FORWARD = 17.0
 
 MODEL_PATH = "/home/jettec/ros2_ws/src/JetTec_RL/checkpoints/checkpoint_ep7280.pth"
 
