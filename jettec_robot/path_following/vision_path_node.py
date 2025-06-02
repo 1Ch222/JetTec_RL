@@ -30,7 +30,7 @@ class VisionNode(Node):
 
         self.bridge = CvBridge()
         self.subscriber = self.create_subscription(
-            Image, '/rgbd_camera/image', self.image_callback, 10
+            Image, '/zed/zed_node/rgb/image_rect_color', self.image_callback, 10
         )
         self.offset_publisher = self.create_publisher(Float32, '/line_offset', 10)
         self.line_state_publisher = self.create_publisher(Int32, '/line_state', 10)  
