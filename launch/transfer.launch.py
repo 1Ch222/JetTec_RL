@@ -19,7 +19,5 @@ def generate_launch_description():
             executable='transfer_node',
             name='transfer_node',
             output='screen',
-            parameters=[{'use_sim_time': True}],
-            arguments=['--load', LaunchConfiguration('load')],
         ),
     ])
