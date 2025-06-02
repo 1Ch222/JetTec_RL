@@ -31,9 +31,11 @@ setup(
             'vision_line_node = jettec_robot.line_following.vision_line_node:main',
             'training_line_node = jettec_robot.line_following.training_line_node:main',
             'testing_line_node = jettec_robot.line_following.testing_line_node:main',
+            'robot_spawn = jettec_robot.scripts.robot_spawn:main', 
             'vision_path_node = jettec_robot.path_following.vision_path_node:main',
             'training_path_node = jettec_robot.path_following.training_path_node:main',
             'testing_path_node = jettec_robot.path_following.testing_path_node:main',
+            'transfer_node = jettec_robot.path_following.transfer:main',
         ],
     },
 )
