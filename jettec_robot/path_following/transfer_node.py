@@ -26,7 +26,7 @@ SERVO_RIGHT = 6
 MOTOR_NEUTRAL = 15.0
 MOTOR_FORWARD = 20.0
 
-MODEL_PATH = "../checkpoints/_final.pth"
+MODEL_PATH = "../checkpoints/checkpoint_ep7280.pth"
 
 class PPOInferenceNode(Node):
     def __init__(self):
