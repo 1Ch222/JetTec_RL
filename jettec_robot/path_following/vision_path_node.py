@@ -44,8 +44,8 @@ class VisionNode(Node):
             vision = Vision(cv_image, debug=False)
             offset, processed_image, line_state = vision.calculate_offset_and_threshold()
 
-            cv2.imshow("Processed PPO Image (84x84)", processed_image)
-            cv2.waitKey(1)
+            #cv2.imshow("Processed PPO Image (84x84)", processed_image)
+            #cv2.waitKey(1)
 
             self.line_state_publisher.publish(Int32(data=line_state))  # 🆕
 
