@@ -27,11 +27,11 @@ TAU = 0.95
 GRADIENT_CLIP = 5
 NUM_EPOCHS = 15
 CLIP = 0.1
-LR = 5e-4
+LR = 1e-4
 EPSILON = 1e-4
 
 class Agent:
-    def __init__(self, num_agents, input_channels, action_size):
+    def __init__(self, num_agents, input_channels, action_size, use_caps=False):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.actor = CNNPathActor(input_channels, action_size, device=self.device)
         self.critic = CNNPathCritic(input_channels, device=self.device)
@@ -39,7 +39,9 @@ class Agent:
         self.actor_optim = optim.Adam(self.actor.parameters(), lr=LR, eps=EPSILON)
         self.critic_optim = optim.Adam(self.critic.parameters(), lr=LR, eps=EPSILON)
 
-        self.BETA = 0.01
+        self.use_caps = use_caps
+        self.BETA = 0.01  # Entropy weight
+        self.lambda_grad_caps = 0.80  # Grad-CAPS weight
 
     def act(self, seq_states: torch.Tensor, hidden=None):
         seq_states = seq_states.to(self.device)
@@ -94,7 +96,11 @@ class Agent:
                 r = returns[idx]
                 adv = advantages[idx]
 
+                # === Grad-CAPS requires gradients w.r.t. state ===
+                seqs.requires_grad_(True)
                 dist, _ = self.actor(seqs)
+                sampled_action = dist.rsample()  # Differentiable sampling
+
                 log_probs = dist.log_prob(a).sum(dim=1, keepdim=True)
                 entropy = dist.entropy().mean()
 
@@ -106,7 +112,18 @@ class Agent:
 
                 policy_loss = -torch.min(obj, obj_clipped).mean() - self.BETA * entropy
                 value_loss = (r - values).pow(2).mean()
+
                 total_loss = policy_loss + 0.5 * value_loss
+
+                if self.use_caps:
+                    grads = torch.autograd.grad(sampled_action, seqs,
+                                                grad_outputs=torch.ones_like(sampled_action),
+                                                create_graph=True, retain_graph=True, only_inputs=True)[0]
+                    grad_caps_loss = grads.pow(2).mean()
+                    total_loss += self.lambda_grad_caps * grad_caps_loss
+
+                    if writer:
+                        writer.add_scalar("Loss/GradCAPS", grad_caps_loss.item(), step_idx)
 
                 self.actor_optim.zero_grad()
                 self.critic_optim.zero_grad()
@@ -115,8 +132,6 @@ class Agent:
                 nn.utils.clip_grad_norm_(self.critic.parameters(), GRADIENT_CLIP)
                 self.actor_optim.step()
                 self.critic_optim.step()
-
-                #self.BETA = max(self.BETA * self.beta_decay, self.beta_min)
 
                 if writer:
                     writer.add_scalar("Loss/Policy", policy_loss.item(), step_idx)
