@@ -1,13 +1,3 @@
-# -*- coding: utf-8 -*-
-#               
-#            ___________________________________
-#           /___   _______/  /_   _____________/           
-#              /  /    /_    _/  /                     
-#        ___  /  /___   /  / /  /___    ____ 
-#       /  / /  / __  \/  / /  / __  \/   _ /       
-#      /  /_/  /   ___/  /_/  /   ___/  /__
-#      \______/ \____/\___/__/ \____/ \___/      
-
 import os
 import sys
 import time
@@ -45,13 +35,15 @@ SAVE_INTERVAL_EPISODES = 10
 MAX_EPISODES = 10000
 
 ROLLOUT_LENGTH = 256
-BUFFER_THRESHOLD = 2048
+BUFFER_THRESHOLD = 1024
 
 SPAWN_POSES = [
-    "name: 'JetTec_Robot' position: { x: -1.16, y: -1.55, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }",
+    "name: 'JetTec_Robot' position: { x: -2.61, y: -2.23, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: 0.03, w: 0.99 }",
+    "name: 'JetTec_Robot' position: { x: 0.53, y: 6.45, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: -0.43, w: 0.90 }",
+    "name: 'JetTec_Robot' position: { x: -3.02, y: 4.68, z: 0.15 } orientation: { x: 0.0, y: 0.0, z: -0.53, w: 0.84 }",
 ]
 
-LOAD_MODEL_PATH = "/home/mrsl/ros2_ws/checkpoints/20250527_143305/checkpoint_ep1480.pth"
+LOAD_MODEL_PATH = None
 
 def set_seed(seed: int = 42):
     random.seed(seed)
@@ -66,13 +58,18 @@ class PPOTrainerNode(Node):
         super().__init__('trainer_node')
         self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
+        # === CONFIGURATION DES FLAGS ===
+        self.use_caps = True
+        self.use_jerk_penalty = True
+        self.jerk_penalty_coeff = 0.80
+
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.checkpoint_dir = f"checkpoints/{run_id}"
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-        self.tensorboard_log = f"runs/jettec_run_{run_id}"
+        self.tensorboard_log = f"runs/jettec_run_{run_id}_CAPS080_Jerk080_base256"
         self.get_logger().info("\U0001f9e0 PPOTrainerNode launched.")
 
-        self.agent = Agent(NUM_AGENTS, IMAGE_SIZE[0], ACTION_SIZE)
+        self.agent = Agent(NUM_AGENTS, IMAGE_SIZE[0], ACTION_SIZE, use_caps=self.use_caps)
         self.model_for_viz = CNNPathActor(1, ACTION_SIZE, device=self.agent.device)
         self.model_for_viz.load_state_dict(self.agent.actor.state_dict())
         self.model_for_viz.to(self.agent.device)
@@ -92,6 +89,7 @@ class PPOTrainerNode(Node):
 
         self.bridge = CvBridge()
         self.writer = SummaryWriter(log_dir=self.tensorboard_log)
+        self.writer.add_text("config", f"CAPS: {self.use_caps}, Jerk: {self.use_jerk_penalty}")
 
         self.rollout = []
         self.buffer = []
@@ -103,7 +101,7 @@ class PPOTrainerNode(Node):
         self.latest_line_state = None
         self.latest_image = None
 
-        self.prev_angular = 0.0  # Ajouté pour le lissage
+        self.prev_angular = 0.0
 
         self.create_subscription(Float32, '/line_offset', self.offset_callback, 10)
         self.create_subscription(Int32, '/line_state', self.line_state_callback, 10)
@@ -142,18 +140,26 @@ class PPOTrainerNode(Node):
             reward = -1.0
         else:
             if line_state == 2:
-                reward = m.exp(-(offset**2)/(2*(0.2**2))) if offset is not None and not isnan(offset) else -1.0
+                reward = m.exp(-(offset**2)/(2*(0.6**2))) if offset is not None and not isnan(offset) else -1.0
             elif line_state == 1:
                 reward = -0.5
             else:
                 reward = -1.0
 
-        # Pénalité sur le steering angle
-        penalty_factor = 0.05
-        action = float(self.prev_angular)  # On utilise l'action lissée précédente
-        steering_penalty = penalty_factor * abs(action)
-        reward -= steering_penalty
-        self.writer.add_scalar("reward/steering_penalty", -steering_penalty, self.step_counter)
+        if not hasattr(self, 'last_action'):
+            self.last_action = 0.0
+            self.last_last_action = 0.0
+
+        action = float(self.prev_angular)
+
+        jerk = abs(action - 2 * self.last_action + self.last_last_action)
+        if self.use_jerk_penalty:
+            jerk_penalty = self.jerk_penalty_coeff * jerk
+            reward -= jerk_penalty
+            self.writer.add_scalar("reward/jerk_penalty", -jerk_penalty, self.step_counter)
+
+        self.last_last_action = self.last_action
+        self.last_action = action
 
         self.writer.add_scalar("reward/step", reward, self.step_counter)
         self.writer.add_scalar("tracking/lost_steps", self.lost_steps, self.step_counter)
